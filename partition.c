@@ -13,7 +13,7 @@ static void dijkstra(Graph *graph, int source, int *dist) {
         fprintf(stderr, "Błąd alokacji pamięci w dijkstra.\n");
         return;
     }
-
+    int successful_splits = 0;//dodac obliczanie udanych podzialow
     for (int i = 0; i < n; i++) {
         dist[i] = (i == source) ? 0 : INT_MAX;
     }
