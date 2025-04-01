@@ -66,7 +66,7 @@ int main(int argc, char **argv) {
         free_graph(&graph);
         return 1;
     }
-    int successful_splits = 0;
+    //int successful_splits = 0;
     // Podział grafu z wykorzystaniem DFS oraz korekty spójności i równowagi
     dfs_partition(&graph, num_parts, max_diff, partition);
     
@@ -81,7 +81,7 @@ int main(int argc, char **argv) {
         }
     }
     if (terminal) {
-        printf(successful_splits);
+        //printf(successful_splits);
         print_graph(&graph);  // Funkcja wypisująca graf w terminalu
     }
     // Zapis wyniku – wykorzystujemy funkcje z output.c
