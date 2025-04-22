@@ -64,6 +64,7 @@ static int load_graph_csrrg(Graph *graph, FILE *fp) {
             }
             graph->col_index[idx++] = atoi(token);
             token = strtok(NULL, ";");
+            graph->num_points += 1;
         }
     }
     
@@ -102,6 +103,11 @@ static int load_graph_csrrg(Graph *graph, FILE *fp) {
             graph->group_ptr[idx++] = atoi(token);
             token = strtok(NULL, ";");
         }
+    }
+    int n = graph->num_points;
+    graph->tab_sas = (int **)malloc(n * sizeof(int *));
+    for (int i = 0; i < n; i++) {
+        graph->tab_sas = (int *)malloc(n * sizeof(int));
     }
     
     return 0;

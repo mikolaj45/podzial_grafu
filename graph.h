@@ -7,6 +7,8 @@ typedef struct {
     int *row_ptr;       // Wskaźniki na zakresy wierszy (Sekcja 3)
     int *group_list;    // Lista grup połączonych wierzchołków (Sekcja 4)
     int *group_ptr;     // Wskaźniki na pierwsze węzły w grupach (Sekcja 5)
+    int **tab_sas;
+    int num_points;
     int num_partitions;  // do formatu binarnego
     int num_edges;       // do formatu binarnego
 } Graph;
