@@ -1,46 +1,27 @@
 #ifndef PARTITION_H
 #define PARTITION_H
 
-#include "graph.h"
+#include "graph.h"  // Zakładam, że struktura Graph i stałe są zdefiniowane tutaj
 
-/**
- * @brief Znajduje wierzchołek centralny grafu.
- * 
- * Wykorzystuje uproszczoną wersję algorytmu Dijkstry (z wagą = 1 dla każdej krawędzi)
- * do obliczenia sumy najkrótszych ścieżek z danego wierzchołka do pozostałych.
- * Wybiera wierzchołek o minimalnej sumie jako punkt startowy.
- * 
- * @param graph Wskaźnik do struktury Graph.
- * @return Numer wierzchołka centralnego lub -1 w przypadku błędu.
- */
-int find_center(Graph *graph);
+#define MAX_VERTICES 1000
+#define INF 1000000
 
-/**
- * @brief Rekurencyjne przeszukiwanie DFS.
- * 
- * Funkcja przypisuje wierzchołek v do części (part_id) oraz odwiedza rekurencyjnie wszystkich
- * sąsiadów nieodwiedzonych.
- * 
- * @param graph Wskaźnik do struktury Graph.
- * @param v Numer bieżącego wierzchołka.
- * @param visited Tablica zaznaczająca odwiedzone wierzchołki.
- * @param part_id Numer przypisywanej części.
- * @param partition Tablica z przypisaniami wierzchołków do części.
- */
-void dfs(Graph *graph, int v, int *visited, int part_id, int *partition);
+// Znajduje centralny wierzchołek grafu (ten o najmniejszej maksymalnej odległości do innych)
+int find_central_vertex(Graph *graph);
 
-/**
- * @brief Główna funkcja realizująca podział grafu.
- * 
- * Najpierw wybiera punkt startowy przy pomocy find_center(), a następnie wykonuje DFS,
- * przypisując wierzchołki do kolejnych części. Po wstępnym podziale wywoływane są dodatkowe
- * korekty – weryfikacja spójności części oraz kontrola równowagi (max_diff).
- * 
- * @param graph Wskaźnik do struktury Graph.
- * @param num_parts Liczba części, na które dzielimy graf.
- * @param max_diff Maksymalna dopuszczalna różnica rozmiarów między częściami.
- * @param partition Tablica wynikowa z przypisaniami wierzchołków do części.
- */
-void dfs_partition(Graph *graph, int num_parts, int max_diff, int *partition);
+// Algorytm Dijkstry – uzupełnia tablicę max_distances dla podanego wierzchołka
+void dijkstra(Graph *graph, int start);
 
-#endif // PARTITION_H
+// DFS wybierający wierzchołki do grupy 1 zaczynając od wierzchołka centralnego
+void dfs_select_group1(Graph *graph, int start, int group1[], int *group1_size);
+
+// Sprawdza, czy dana grupa w grafie jest spójna
+bool is_group_connected(const Graph *graph, int group_id);
+
+// Dzieli graf na dwie spójne grupy z uwzględnieniem marginesu błędu w wielkości grup
+void partition_graph(Graph *graph, int group1[], int *group1_size, int group2[], int *group2_size, int margin);
+
+// Balansuje grupy, zachowując ich spójność i przestrzegając marginesu
+bool balance_groups(Graph *graph, int group1[], int *group1_size, int group2[], int *group2_size, int margin);
+
+#endif // PARTITIONS_H

@@ -1,240 +1,420 @@
 #include "partition.h"
-#include <stdio.h>
 #include <stdlib.h>
+#include <stdbool.h>
 #include <limits.h>
+#include <string.h>
 
-// ------------------------------
-// Funkcja Dijkstry (uproszczona)
-// ------------------------------
-static void dijkstra(Graph *graph, int source, int *dist) {
-    int n = graph->num_vertices;
-    int *visited = (int *)calloc(n, sizeof(int));
-    if (!visited) {
-        fprintf(stderr, "Błąd alokacji pamięci w dijkstra.\n");
-        return;
+static void dfs_visit(const Graph *graph, int v, bool visited[]) {
+    visited[v] = true;
+    for (int i = 0; i < graph->neighbor_count[v]; i++) {
+        int neighbor = graph->neighbors[v][i];
+        if (!visited[neighbor]) {
+            dfs_visit(graph, neighbor, visited);
+        }
     }
-    int successful_splits = 0;//dodac obliczanie udanych podzialow
-    for (int i = 0; i < n; i++) {
-        dist[i] = (i == source) ? 0 : INT_MAX;
-    }
+}
 
-    for (int count = 0; count < n; count++) {
+void dijkstra(Graph *graph, int start) {
+    int dist[MAX_VERTICES];
+    bool visited[MAX_VERTICES] = {false};
+
+    for (int i = 0; i < graph->num_vertices; i++) {
+        dist[i] = INF;
+    }
+    dist[start] = 0;
+
+    for (int count = 0; count < graph->num_vertices - 1; count++) {
         int u = -1;
-        int min = INT_MAX;
-        for (int i = 0; i < n; i++) {
-            if (!visited[i] && dist[i] < min) {
-                min = dist[i];
-                u = i;
+        int min_dist = INF;
+        for (int v = 0; v < graph->num_vertices; v++) {
+            if (!visited[v] && dist[v] < min_dist) {
+                min_dist = dist[v];
+                u = v;
             }
         }
+
         if (u == -1) break;
 
-        visited[u] = 1;
+        visited[u] = true;
 
-        for (int i = graph->row_ptr[u]; i < graph->row_ptr[u + 1]; i++) {
-            int v = graph->col_index[i];
-            if (!visited[v] && dist[u] != INT_MAX && dist[u] + 1 < dist[v]) {
+        for (int i = 0; i < graph->neighbor_count[u]; i++) {
+            int v = graph->neighbors[u][i];
+            if (!visited[v] && dist[u] + 1 < dist[v]) {
                 dist[v] = dist[u] + 1;
             }
         }
     }
+
+    int max_dist = 0;
+    for (int i = 0; i < graph->num_vertices; i++) {
+        if (dist[i] != INF && dist[i] > max_dist) {
+            max_dist = dist[i];
+        }
+    }
+    graph->max_distances[start] = max_dist;
+}
+
+int find_central_vertex(Graph *graph) {
+    for (int i = 0; i < graph->num_vertices; i++) {
+        dijkstra(graph, i);
+    }
+
+    int min_vertex = 0;
+    int min_value = graph->max_distances[0];
+
+    for (int i = 1; i < graph->num_vertices; i++) {
+        if (graph->max_distances[i] < min_value) {
+            min_value = graph->max_distances[i];
+            min_vertex = i;
+        }
+    }
+
+    return min_vertex;
+}
+
+void dfs_select_group1(Graph *graph, int start, int group1[], int *group1_size) {
+    bool visited[MAX_VERTICES] = {false};
+    int stack[MAX_VERTICES];
+    int stack_size = 0;
+
+    stack[stack_size++] = start;
+    visited[start] = true;
+    group1[(*group1_size)++] = start;
+    graph->group_assignment[start] = 1;
+
+    while (stack_size > 0) {
+        int current = stack[--stack_size];
+
+        int max_dist = -1;
+        int next_vertex = -1;
+
+        for (int i = 0; i < graph->neighbor_count[current]; i++) {
+            int neighbor = graph->neighbors[current][i];
+            if (!visited[neighbor] && graph->max_distances[neighbor] > max_dist) {
+                max_dist = graph->max_distances[neighbor];
+                next_vertex = neighbor;
+            }
+        }
+
+        if (next_vertex != -1) {
+            stack[stack_size++] = current;
+            stack[stack_size++] = next_vertex;
+            visited[next_vertex] = true;
+            group1[(*group1_size)++] = next_vertex;
+            graph->group_assignment[next_vertex] = 1;
+        }
+    }
+}
+
+bool is_group_connected(const Graph *graph, int group_id) {
+    int start = -1;
+    for (int i = 0; i < graph->num_vertices; i++) {
+        if (graph->group_assignment[i] == group_id) {
+            start = i;
+            break;
+        }
+    }
+    if (start == -1) return true;
+
+    bool visited[MAX_VERTICES] = {false};
+    int stack[MAX_VERTICES];
+    int stack_size = 0;
+    int visited_count = 0;
+
+    stack[stack_size++] = start;
+    visited[start] = true;
+
+    while (stack_size > 0) {
+        int current = stack[--stack_size];
+        visited_count++;
+
+        for (int i = 0; i < graph->neighbor_count[current]; i++) {
+            int neighbor = graph->neighbors[current][i];
+            if (graph->group_assignment[neighbor] == group_id && !visited[neighbor]) {
+                visited[neighbor] = true;
+                stack[stack_size++] = neighbor;
+            }
+        }
+    }
+
+    int group_size = 0;
+    for (int i = 0; i < graph->num_vertices; i++) {
+        if (graph->group_assignment[i] == group_id) group_size++;
+    }
+
+    return visited_count == group_size;
+}
+
+void partition_graph(Graph *graph, int group1[], int *group1_size, int group2[], int *group2_size, int margin) {
+    // Inicjalizacja grup
+    *group1_size = 0;
+    *group2_size = 0;
     
-    free(visited);
-}
-
-// --------------------------------------------
-// Wybór wierzchołka centralnego (find_center)
-// --------------------------------------------
-int find_center(Graph *graph) {
-    int n = graph->num_vertices;
-    if(n <= 0) return -1;
-
-    int best_vertex = -1;
-    long best_sum = LONG_MAX;
-    int *dist = (int *)malloc(n * sizeof(int));
-    if (!dist) {
-        fprintf(stderr, "Błąd alokacji pamięci w find_center.\n");
-        return -1;
+    // Inicjalizacja przypisania do grup
+    for (int i = 0; i < graph->num_vertices; i++) {
+        graph->group_assignment[i] = 0;
     }
 
-    for (int v = 0; v < n; v++) {
-        dijkstra(graph, v, dist);
-        long sum = 0;
-        for (int i = 0; i < n; i++) {
-            if (dist[i] == INT_MAX) continue;
-            sum += dist[i];
-        }
-        if (sum < best_sum) {
-            best_sum = sum;
-            best_vertex = v;
+    int center = find_central_vertex(graph);
+    
+    // Wybierz grupę 1 poprzez DFS
+    dfs_select_group1(graph, center, group1, group1_size);
+    
+    // Pozostałe wierzchołki do grupy 2
+    for (int i = 0; i < graph->num_vertices; i++) {
+        if (graph->group_assignment[i] != 1) {
+            group2[(*group2_size)++] = i;
+            graph->group_assignment[i] = 2;
         }
     }
 
-    free(dist);
-    return best_vertex;
-}
-
-// ------------------------------
-// DFS rekurencyjny
-// ------------------------------
-void dfs(Graph *graph, int v, int *visited, int part_id, int *partition) {
-    visited[v] = 1;
-    partition[v] = part_id;
-
-    for (int i = graph->row_ptr[v]; i < graph->row_ptr[v + 1]; i++) {
-        int neighbor = graph->col_index[i];
-        if (!visited[neighbor]) {
-            dfs(graph, neighbor, visited, part_id, partition);
-        }
-    }
-}
-
-// --------------------------------------------------------
-// Korekta spójności części – zapewnienie, że każda część
-// jest spójnym podgrafem.
-// Jeśli w danej części występują rozdzielone składowe,
-// próbuje przypisać "odłączone" wierzchołki do sąsiedniej części.
-// --------------------------------------------------------
-static void correct_partition_connectivity(Graph *graph, int num_parts, int *partition) {
-    int n = graph->num_vertices;
-    int *visited = (int *)calloc(n, sizeof(int));
-    if (!visited) return;
-
-    // Dla każdej części sprawdzamy spójność
-    for (int part = 0; part < num_parts; part++) {
-        int start = -1;
-        for (int i = 0; i < n; i++) {
-            if (partition[i] == part) {
-                start = i;
-                break;
-            }
-        }
-        if (start == -1) continue;
-
-        // DFS w obrębie danej części
-        int *stack = (int *)malloc(n * sizeof(int));
-        if (!stack) continue;
-        int stack_size = 0;
-        stack[stack_size++] = start;
-        visited[start] = 1;
-        while (stack_size > 0) {
-            int cur = stack[--stack_size];
-            for (int j = graph->row_ptr[cur]; j < graph->row_ptr[cur + 1]; j++) {
-                int neighbor = graph->col_index[j];
-                if (partition[neighbor] == part && !visited[neighbor]) {
-                    visited[neighbor] = 1;
-                    stack[stack_size++] = neighbor;
-                }
-            }
-        }
-        free(stack);
-
-        // Wykrycie odłączonych składowych – przypisanie ich do pierwszej napotkanej innej części.
-        for (int i = 0; i < n; i++) {
-            if (partition[i] == part && !visited[i]) {
-                for (int j = graph->row_ptr[i]; j < graph->row_ptr[i + 1]; j++) {
-                    int neighbor = graph->col_index[j];
-                    if (partition[neighbor] != part) {
-                        partition[i] = partition[neighbor];
-                        break;
+    // --- NOWA CZĘŚĆ: Naprawianie niespójności grupy 2 ---
+    if (!is_group_connected(graph, 2)) {
+        // Znajdź największy spójny komponent w grupie 2
+        int largest_component_size = 0;
+        bool in_largest_component[MAX_VERTICES] = {false};
+        bool visited[MAX_VERTICES] = {false};
+        
+        for (int i = 0; i < graph->num_vertices; i++) {
+            if (graph->group_assignment[i] == 2 && !visited[i]) {
+                bool current_visited[MAX_VERTICES] = {false};
+                int component_size = 0;
+                
+                // Wykonaj DFS dla tego komponentu
+                int stack[MAX_VERTICES];
+                int stack_size = 0;
+                stack[stack_size++] = i;
+                current_visited[i] = true;
+                
+                while (stack_size > 0) {
+                    int current = stack[--stack_size];
+                    component_size++;
+                    
+                    for (int j = 0; j < graph->neighbor_count[current]; j++) {
+                        int neighbor = graph->neighbors[current][j];
+                        if (graph->group_assignment[neighbor] == 2 && !current_visited[neighbor]) {
+                            current_visited[neighbor] = true;
+                            stack[stack_size++] = neighbor;
+                        }
                     }
                 }
+                
+                // Aktualizuj największy komponent
+                if (component_size > largest_component_size) {
+                    largest_component_size = component_size;
+                    memcpy(in_largest_component, current_visited, sizeof(in_largest_component));
+                }
+                
+                // Oznacz jako odwiedzone
+                for (int j = 0; j < graph->num_vertices; j++) {
+                    if (current_visited[j]) visited[j] = true;
+                }
             }
         }
-        // Resetowanie visited dla kolejnej części
-        for (int i = 0; i < n; i++) {
-            if (partition[i] == part) {
-                visited[i] = 0;
+        
+        // Przenieś wierzchołki spoza największego komponentu do grupy 1
+        int new_group2_size = 0;
+        for (int i = 0; i < graph->num_vertices; i++) {
+            if (graph->group_assignment[i] == 2) {
+                if (in_largest_component[i]) {
+                    group2[new_group2_size++] = i;
+                } else {
+                    graph->group_assignment[i] = 1;
+                    group1[(*group1_size)++] = i;
+                }
             }
         }
+        *group2_size = new_group2_size;
     }
-    free(visited);
+
+    // Sprawdź margines błędu
+    int size_diff = abs(*group1_size - *group2_size);
+    if (size_diff > margin) {
+        balance_groups(graph, group1, group1_size, group2, group2_size, margin);
+    }
 }
 
-// --------------------------------------------------------
-// Korekta równowagi części – próba wyrównania liczby
-// wierzchołków w poszczególnych częściach na podstawie max_diff.
-// W tej uproszczonej wersji, dla wierzchołków należących do
-// zbyt małej części, sprawdzamy czy któryś z sąsiadów należy
-// do części o znacznie większej liczbie wierzchołków i dokonujemy reasignacji.
-// --------------------------------------------------------
-static void correct_partition_balance(Graph *graph, int num_parts, int max_diff, int *partition) {
-    int n = graph->num_vertices;
-    int *sizes = (int *)calloc(num_parts, sizeof(int));
-    if (!sizes) return;
-
-    // Obliczenie rozmiarów poszczególnych części
-    for (int i = 0; i < n; i++) {
-        int part = partition[i];
-        if (part >= 0 && part < num_parts)
-            sizes[part]++;
+bool balance_groups(Graph *graph, int group1[], int *group1_size, int group2[], int *group2_size, int margin) {
+    // Przygotuj posortowaną listę wierzchołków z grupy 1 według max_distance (rosnąco)
+    typedef struct {
+        int vertex;
+        int max_dist;
+    } VertexInfo;
+    
+    VertexInfo vertices[MAX_VERTICES];
+    int count = 0;
+    
+    for (int i = 0; i < *group1_size; i++) {
+        int v = group1[i];
+        vertices[count].vertex = v;
+        vertices[count].max_dist = graph->max_distances[v];
+        count++;
+    }
+    
+    // Sortowanie przez wstawianie (stabilne i efektywne dla małych/średnich tablic)
+    for (int i = 1; i < count; i++) {
+        VertexInfo key = vertices[i];
+        int j = i - 1;
+        while (j >= 0 && vertices[j].max_dist > key.max_dist) {
+            vertices[j+1] = vertices[j];
+            j--;
+        }
+        vertices[j+1] = key;
     }
 
-    // Obliczenie średniej liczby wierzchołków (jako przybliżenie równowagi)
-    int avg = n / num_parts;
-
-    // Przegląd wierzchołków – próba reasignacji wierzchołka do innej części
-    // jeśli jego część jest "za mała" i sąsiadująca część "za duża".
-    for (int i = 0; i < n; i++) {
-        int current = partition[i];
-        if (sizes[current] < avg - max_diff) {
-            // Sprawdzamy sąsiadów wierzchołka
-            for (int j = graph->row_ptr[i]; j < graph->row_ptr[i + 1]; j++) {
-                int neighbor = graph->col_index[j];
-                int neighbor_part = partition[neighbor];
-                if (sizes[neighbor_part] > avg + max_diff) {
-                    // Przypisujemy wierzchołek do części sąsiada
-                    sizes[current]--;
-                    partition[i] = neighbor_part;
-                    sizes[neighbor_part]++;
+    bool progress;
+    do {
+        progress = false;
+        
+        // Próbuj przenosić wierzchołki w kolejności od najmniejszego max_distance
+        for (int i = 0; i < count; i++) {
+            int v = vertices[i].vertex;
+            
+            // Sprawdź czy wierzchołek nadal należy do grupy 1
+            bool in_group1 = false;
+            for (int j = 0; j < *group1_size; j++) {
+                if (group1[j] == v) {
+                    in_group1 = true;
                     break;
                 }
             }
+            if (!in_group1) continue;
+            
+            // 1. Sprawdź czy grupa 1 pozostanie spójna bez tego wierzchołka
+            bool group1_remains_connected = true;
+            
+            // Tymczasowo usuń wierzchołek
+            graph->group_assignment[v] = 0;
+            
+            if (*group1_size > 1) { // Grupa 1-elementowa jest zawsze spójna
+                // Znajdź pierwszego sąsiada w grupie 1 jako punkt startowy DFS
+                int start = -1;
+                for (int j = 0; j < graph->neighbor_count[v]; j++) {
+                    int neighbor = graph->neighbors[v][j];
+                    if (graph->group_assignment[neighbor] == 1) {
+                        start = neighbor;
+                        break;
+                    }
+                }
+                
+                if (start != -1) {
+                    // Wykonaj DFS na grupie 1 bez tego wierzchołka
+                    bool visited[MAX_VERTICES] = {false};
+                    int stack[MAX_VERTICES];
+                    int stack_size = 0;
+                    int visited_count = 0;
+                    
+                    stack[stack_size++] = start;
+                    visited[start] = true;
+                    
+                    while (stack_size > 0) {
+                        int current = stack[--stack_size];
+                        visited_count++;
+                        
+                        for (int j = 0; j < graph->neighbor_count[current]; j++) {
+                            int neighbor = graph->neighbors[current][j];
+                            if (graph->group_assignment[neighbor] == 1 && !visited[neighbor]) {
+                                visited[neighbor] = true;
+                                stack[stack_size++] = neighbor;
+                            }
+                        }
+                    }
+                    
+                    // Porównaj z rzeczywistym rozmiarem grupy 1 minus 1 (usunięty wierzchołek)
+                    int expected_count = *group1_size - 1;
+                    group1_remains_connected = (visited_count == expected_count);
+                } else {
+                    // Brak sąsiadów - grupa rozpadnie się
+                    group1_remains_connected = false;
+                }
+            }
+            
+            // Przywróć wierzchołek do grupy 1
+            graph->group_assignment[v] = 1;
+            
+            if (!group1_remains_connected) continue;
+            
+            // 2. Sprawdź czy grupa 2 będzie spójna z dodanym wierzchołkiem
+            bool group2_will_be_connected = true;
+            
+            // Tymczasowo dodaj wierzchołek do grupy 2
+            graph->group_assignment[v] = 2;
+            
+            if (*group2_size > 0) { // Jeśli grupa 2 nie jest pusta
+                // Znajdź pierwszego sąsiada w grupie 2 jako punkt startowy DFS
+                int start = -1;
+                for (int j = 0; j < graph->neighbor_count[v]; j++) {
+                    int neighbor = graph->neighbors[v][j];
+                    if (graph->group_assignment[neighbor] == 2) {
+                        start = neighbor;
+                        break;
+                    }
+                }
+                
+                if (start != -1) {
+                    // Wykonaj DFS na grupie 2 z nowym wierzchołkiem
+                    bool visited[MAX_VERTICES] = {false};
+                    int stack[MAX_VERTICES];
+                    int stack_size = 0;
+                    int visited_count = 0;
+                    
+                    stack[stack_size++] = start;
+                    visited[start] = true;
+                    
+                    while (stack_size > 0) {
+                        int current = stack[--stack_size];
+                        visited_count++;
+                        
+                        for (int j = 0; j < graph->neighbor_count[current]; j++) {
+                            int neighbor = graph->neighbors[current][j];
+                            if (graph->group_assignment[neighbor] == 2 && !visited[neighbor]) {
+                                visited[neighbor] = true;
+                                stack[stack_size++] = neighbor;
+                            }
+                        }
+                    }
+                    
+                    // Oczekiwana liczba wierzchołków w grupie 2 po dodaniu
+                    int expected_count = *group2_size + 1;
+                    group2_will_be_connected = (visited_count == expected_count);
+                } else {
+                    // Nowy wierzchołek nie ma sąsiadów w grupie 2
+                    group2_will_be_connected = (*group2_size == 0); // Tylko jeśli grupa 2 była pusta
+                }
+            }
+            
+            // Przywróć oryginalny stan przed podjęciem decyzji
+            graph->group_assignment[v] = 1;
+            
+            if (group1_remains_connected && group2_will_be_connected) {
+                // Wykonaj przeniesienie
+                graph->group_assignment[v] = 2;
+                group2[(*group2_size)++] = v;
+                
+                // Usuń z grupy 1
+                for (int j = 0; j < *group1_size; j++) {
+                    if (group1[j] == v) {
+                        for (int k = j; k < *group1_size-1; k++) {
+                            group1[k] = group1[k+1];
+                        }
+                        (*group1_size)--;
+                        break;
+                    }
+                }
+                
+                progress = true;
+                
+                // Sprawdź warunek marginesu
+                int size_diff = abs(*group1_size - *group2_size);
+                if (size_diff <= margin) {
+                    return true;
+                }
+                
+                // Zacznij przeszukiwanie od nowa, bo zmieniły się grupy
+                break;
+            }
         }
-    }
-    free(sizes);
-}
-
-// --------------------------------------------------------
-// Główna funkcja realizująca podział grafu
-// --------------------------------------------------------
-void dfs_partition(Graph *graph, int num_parts, int max_diff, int *partition) {
-    int n = graph->num_vertices;
-    int *visited = (int *)calloc(n, sizeof(int));
-    if (!visited) {
-        fprintf(stderr, "Błąd alokacji pamięci w dfs_partition.\n");
-        return;
-    }
+    } while (progress);
     
-    // Inicjalizacja tablicy partition wartością -1 (nieprzypisane)
-    for (int i = 0; i < n; i++) {
-        partition[i] = -1;
-    }
-    
-    // 1. Wybór punktu startowego przy użyciu find_center()
-    int center = find_center(graph);
-    if (center == -1) {
-        fprintf(stderr, "Błąd: Nie udało się wyznaczyć wierzchołka centralnego.\n");
-        free(visited);
-        return;
-    }
-    
-    // 2. DFS od wierzchołka centralnego – przydział części 0
-    dfs(graph, center, visited, 0, partition);
-    
-    // 3. Dla pozostałych nieodwiedzonych wierzchołków, DFS i przypisanie kolejnych części
-    int current_part = 1;
-    for (int v = 0; v < n; v++) {
-        if (!visited[v]) {
-            dfs(graph, v, visited, current_part, partition);
-            current_part = (current_part + 1) % num_parts;
-        }
-    }
-    
-    // 4. Korekta – zapewnienie spójności każdej części
-    correct_partition_connectivity(graph, num_parts, partition);
-    // 5. Korekta – kontrola równowagi między częściami wg max_diff
-    correct_partition_balance(graph, num_parts, max_diff, partition);
-
-    free(visited);
+    return (abs(*group1_size - *group2_size) <= margin);
 }

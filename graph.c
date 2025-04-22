@@ -2,196 +2,213 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdbool.h>
+#include <limits.h>
 
-#define MAX_LINE_LENGTH 1024
-#define INITIAL_ALLOC_SIZE 100
+#define MAX_LINE_LENGTH 2048
 
-// Funkcje pomocnicze do wczytywania grafu w formacie .csrrg i .txt
-static int load_graph_csrrg(Graph *graph, FILE *fp);
-static int load_graph_txt(Graph *graph, FILE *fp);
+void init_graph(Graph *graph) {
+    graph->max_vertices = 0;
+    graph->num_vertices = 0;
+    
+    // Inicjalizacja listy sąsiedztwa
+    for (int i = 0; i < MAX_VERTICES; i++) {
+        graph->neighbor_count[i] = 0;
+        graph->max_distances[i] = 0;
+        graph->group_assignment[i] = 0; // 0 - nieprzypisany
+        for (int j = 0; j < MAX_NEIGHBORS; j++) {
+            graph->neighbors[i][j] = -1;
+        }
+    }
+    
+    // Inicjalizacja struktur CSR
+    graph->col_index = NULL;
+    graph->row_ptr = NULL;
+    graph->group_list = NULL;
+    graph->group_ptr = NULL;
+}
 
-int load_graph_from_file(Graph *graph, const char *filename) {
+void add_edge(Graph *graph, int u, int v) {
+    // Sprawdź czy można dodać krawędź
+    if (u >= MAX_VERTICES || v >= MAX_VERTICES) {
+        fprintf(stderr, "Błąd: Przekroczono maksymalną liczbę wierzchołków\n");
+        return;
+    }
+
+    // Dodaj v do sąsiadów u (jeśli jest miejsce)
+    if (graph->neighbor_count[u] < MAX_NEIGHBORS) {
+        bool exists = false;
+        for (int i = 0; i < graph->neighbor_count[u]; i++) {
+            if (graph->neighbors[u][i] == v) {
+                exists = true;
+                break;
+            }
+        }
+        if (!exists) {
+            graph->neighbors[u][graph->neighbor_count[u]++] = v;
+        }
+    } else {
+        fprintf(stderr, "Ostrzeżenie: Osiągnięto maksymalną liczbę sąsiadów dla wierzchołka %d\n", u);
+    }
+
+    // Dodaj u do sąsiadów v (graf nieskierowany)
+    if (graph->neighbor_count[v] < MAX_NEIGHBORS) {
+        bool exists = false;
+        for (int i = 0; i < graph->neighbor_count[v]; i++) {
+            if (graph->neighbors[v][i] == u) {
+                exists = true;
+                break;
+            }
+        }
+        if (!exists) {
+            graph->neighbors[v][graph->neighbor_count[v]++] = u;
+        }
+    }
+
+    // Aktualizacja liczby wierzchołków
+    if (u + 1 > graph->num_vertices) graph->num_vertices = u + 1;
+    if (v + 1 > graph->num_vertices) graph->num_vertices = v + 1;
+}
+
+void convert_csr_to_neighbors(Graph *graph) {
+    // Dla każdego wiersza w CSR
+    for (int row = 0; row < graph->num_vertices; row++) {
+        int start = graph->row_ptr[row];
+        int end = graph->row_ptr[row + 1];
+        
+        // Dodaj wszystkie krawędzie z CSR do listy sąsiedztwa
+        for (int idx = start; idx < end; idx++) {
+            int col = graph->col_index[idx];
+            add_edge(graph, row, col);
+        }
+    }
+}
+
+int load_graph_from_csrrg(Graph *graph, const char *filename) {
     FILE *fp = fopen(filename, "r");
     if (!fp) {
-        fprintf(stderr, "Błąd: Nie można otworzyć pliku %s\n", filename);
+        perror("Nie można otworzyć pliku");
         return -1;
     }
-    
-    // Rozpoznanie formatu pliku na podstawie rozszerzenia
-    const char *dot = strrchr(filename, '.');
-    int result = 0;
-    if (dot && strcmp(dot, ".csrrg") == 0) {
-        result = load_graph_csrrg(graph, fp);
-    } else if (dot && strcmp(dot, ".txt") == 0) {
-        result = load_graph_txt(graph, fp);
-    } else {
-        fprintf(stderr, "Błąd: Nieznany format pliku %s\n", filename);
-        result = -1;
-    }
-    
-    fclose(fp);
-    return result;
-}
 
-// Wczytywanie grafu z pliku .csrrg
-static int load_graph_csrrg(Graph *graph, FILE *fp) {
+    init_graph(graph); // Reset grafu przed wczytaniem
+
     char line[MAX_LINE_LENGTH];
+    int *temp_array = NULL;
+    int count = 0;
 
-    // Sekcja 1: Rozmiar grafu
-    if (fgets(line, sizeof(line), fp) == NULL) return -1;
-    graph->num_vertices = atoi(line);
+    // Sekcja 1: Maksymalna liczba wierzchołków
+    if (!fgets(line, sizeof(line), fp)) goto error;
+    graph->max_vertices = atoi(line);
 
-    // Alokacja pamięci dla sekcji 2, 3, 4, 5
-    graph->col_index = (int *)malloc(INITIAL_ALLOC_SIZE * sizeof(int));
-    graph->row_ptr   = (int *)malloc((graph->num_vertices + 1) * sizeof(int));
-    graph->group_list = (int *)malloc(INITIAL_ALLOC_SIZE * sizeof(int));
-    graph->group_ptr = (int *)malloc((graph->num_vertices + 1) * sizeof(int));
+    // Sekcja 2: col_index
+    if (!fgets(line, sizeof(line), fp)) goto error;
+    temp_array = malloc(MAX_LINE_LENGTH * sizeof(int));
+    count = 0;
+    char *token = strtok(line, ";");
+    while (token && count < MAX_LINE_LENGTH) {
+        temp_array[count++] = atoi(token);
+        token = strtok(NULL, ";");
+    }
+    graph->col_index = malloc(count * sizeof(int));
+    memcpy(graph->col_index, temp_array, count * sizeof(int));
+    free(temp_array);
+    temp_array = NULL;
 
-    if (!graph->col_index || !graph->row_ptr || !graph->group_list || !graph->group_ptr) {
-        fprintf(stderr, "Błąd: Problemy z alokacją pamięci.\n");
-        return -1;
+    // Sekcja 3: row_ptr
+    if (!fgets(line, sizeof(line), fp)) goto error;
+    temp_array = malloc(MAX_LINE_LENGTH * sizeof(int));
+    count = 0;
+    token = strtok(line, ";");
+    while (token && count < MAX_LINE_LENGTH) {
+        temp_array[count++] = atoi(token);
+        token = strtok(NULL, ";");
     }
-    
-    // Sekcja 2: Układ wierzchołków (col_index)
-    if (fgets(line, sizeof(line), fp) == NULL) return -1;
-    {
-        int idx = 0;
-        char *token = strtok(line, ";");
-        while (token != NULL) {
-            if (idx >= INITIAL_ALLOC_SIZE) {
-                graph->col_index = realloc(graph->col_index, (idx + 1) * sizeof(int));
-                if (!graph->col_index) return -1;
-            }
-            graph->col_index[idx++] = atoi(token);
-            token = strtok(NULL, ";");
-        }
+    graph->row_ptr = malloc(count * sizeof(int));
+    memcpy(graph->row_ptr, temp_array, count * sizeof(int));
+    graph->num_vertices = count - 1; // row_ptr ma n+1 elementów
+    free(temp_array);
+    temp_array = NULL;
+
+    // Sekcja 4: group_list
+    if (!fgets(line, sizeof(line), fp)) goto error;
+    temp_array = malloc(MAX_LINE_LENGTH * sizeof(int));
+    count = 0;
+    token = strtok(line, ";");
+    while (token && count < MAX_LINE_LENGTH) {
+        temp_array[count++] = atoi(token);
+        token = strtok(NULL, ";");
     }
-    
-    // Sekcja 3: Rozkład wierszy (row_ptr)
-    if (fgets(line, sizeof(line), fp) == NULL) return -1;
-    {
-        int idx = 0;
-        char *token = strtok(line, ";");
-        while (token != NULL && idx < graph->num_vertices + 1) {
-            graph->row_ptr[idx++] = atoi(token);
-            token = strtok(NULL, ";");
-        }
+    graph->group_list = malloc(count * sizeof(int));
+    memcpy(graph->group_list, temp_array, count * sizeof(int));
+    free(temp_array);
+    temp_array = NULL;
+
+    // Sekcja 5: group_ptr
+    if (!fgets(line, sizeof(line), fp)) goto error;
+    temp_array = malloc(MAX_LINE_LENGTH * sizeof(int));
+    count = 0;
+    token = strtok(line, ";");
+    while (token && count < MAX_LINE_LENGTH) {
+        temp_array[count++] = atoi(token);
+        token = strtok(NULL, ";");
     }
+    graph->group_ptr = malloc(count * sizeof(int));
+    memcpy(graph->group_ptr, temp_array, count * sizeof(int));
+    free(temp_array);
+
+    fclose(fp);
     
-    // Sekcja 4: Lista grup połączonych wierzchołków (group_list)
-    if (fgets(line, sizeof(line), fp) == NULL) return -1;
-    {
-        int idx = 0;
-        char *token = strtok(line, ";");
-        while (token != NULL) {
-            if (idx >= INITIAL_ALLOC_SIZE) {
-                graph->group_list = realloc(graph->group_list, (idx + 1) * sizeof(int));
-                if (!graph->group_list) return -1;
-            }
-            graph->group_list[idx++] = atoi(token);
-            token = strtok(NULL, ";");
-        }
-    }
-    
-    // Sekcja 5: Wskaźniki na pierwsze węzły w grupach (group_ptr)
-    if (fgets(line, sizeof(line), fp) == NULL) return -1;
-    {
-        int idx = 0;
-        char *token = strtok(line, ";");
-        while (token != NULL && idx < graph->num_vertices + 1) {
-            graph->group_ptr[idx++] = atoi(token);
-            token = strtok(NULL, ";");
-        }
-    }
-    
+    // Konwersja formatu CSR do listy sąsiedztwa
+    convert_csr_to_neighbors(graph);
     return 0;
+
+error:
+    if (fp) fclose(fp);
+    if (temp_array) free(temp_array);
+    free_graph(graph);
+    return -1;
 }
 
-// Wczytywanie grafu z pliku .txt
-static int load_graph_txt(Graph *graph, FILE *fp) {
-    int rows, cols;
-    
-    // Odczytujemy wymiary macierzy
-    if (fscanf(fp, "%d %d", &rows, &cols) != 2) {
-        fprintf(stderr, "Błąd: Nie można odczytać wymiarów grafu.\n");
-        return -1;
-    }
-
-    // Alokujemy miejsce na macierz grafu (0 i 1)
-    int **map = malloc(rows * sizeof(int *));
-    if (!map) return -1;
-    for (int i = 0; i < rows; i++) {
-        map[i] = malloc(cols * sizeof(int));
-        if (!map[i]) return -1;
-    }
-
-    // Wczytujemy mapę grafu
-    int num_vertices = 0;
-    for (int i = 0; i < rows; i++) {
-        for (int j = 0; j < cols; j++) {
-            if (fscanf(fp, "%d", &map[i][j]) != 1) {
-                fprintf(stderr, "Błąd: Nieprawidłowa mapa grafu.\n");
-                return -1;
-            }
-            if (map[i][j] == 1) num_vertices++; // Liczymy wierzchołki
+void dfs(const Graph *graph, int v, bool visited[]) {
+    visited[v] = true;
+    for (int i = 0; i < graph->neighbor_count[v]; i++) {
+        int neighbor = graph->neighbors[v][i];
+        if (!visited[neighbor]) {
+            dfs(graph, neighbor, visited);
         }
     }
+}
 
-    // Tworzymy struktury CSR
-    graph->num_vertices = num_vertices;
-    graph->col_index = malloc(num_vertices * sizeof(int));
-    graph->row_ptr = malloc((num_vertices + 1) * sizeof(int));
+bool is_connected(const Graph *graph) {
+    if (graph->num_vertices == 0) return true;
 
-    if (!graph->col_index || !graph->row_ptr) return -1;
+    bool visited[MAX_VERTICES] = {false};
+    dfs(graph, 0, visited);
 
-    graph->row_ptr[0] = 0;
-    int edge_count = 0;
-    
-    // Wczytujemy listę krawędzi
-    int u, v;
-    while (fscanf(fp, "%d %d", &u, &v) == 2) {
-        graph->col_index[edge_count++] = v; 
-        graph->row_ptr[u + 1] = edge_count; 
+    for (int i = 0; i < graph->num_vertices; i++) {
+        if (!visited[i]) return false;
     }
-
-    // Zwolnienie tymczasowej macierzy
-    for (int i = 0; i < rows; i++) free(map[i]);
-    free(map);
-
-    return 0;
+    return true;
 }
 
 void print_graph(const Graph *graph) {
-    printf("Liczba wierzchołków: %d\n", graph->num_vertices);
-    
-    if (graph->col_index) {
-        printf("Col_index: ");
-        for (int i = 0; i < graph->num_vertices; i++) { // Drukujemy tylko załadowane elementy
-            printf("%d ", graph->col_index[i]);
-        }
-        printf("\n");
+    printf("Graf (wierzchołki: %d/%d):\n", graph->num_vertices, graph->max_vertices);
+    printf("Struktura CSR:\n");
+    printf("col_index: ");
+    for (int i = 0; i < graph->row_ptr[graph->num_vertices]; i++) {
+        printf("%d ", graph->col_index[i]);
+    }
+    printf("\nrow_ptr: ");
+    for (int i = 0; i <= graph->num_vertices; i++) {
+        printf("%d ", graph->row_ptr[i]);
     }
     
-    if (graph->row_ptr) {
-        printf("Row_ptr: ");
-        for (int i = 0; i < graph->num_vertices + 1; i++) { // Drukujemy tylko załadowane elementy
-            printf("%d ", graph->row_ptr[i]);
-        }
-        printf("\n");
-    }
-    
-    if (graph->group_list) {
-        printf("Group_list: ");
-        for (int i = 0; i < graph->num_vertices; i++) { // Drukujemy tylko załadowane elementy
-            printf("%d ", graph->group_list[i]);
-        }
-        printf("\n");
-    }
-    
-    if (graph->group_ptr) {
-        printf("Group_ptr: ");
-        for (int i = 0; i < graph->num_vertices + 1; i++) { // Drukujemy tylko załadowane elementy
-            printf("%d ", graph->group_ptr[i]);
+    printf("\nLista sąsiedztwa:\n");
+    for (int i = 0; i < graph->num_vertices; i++) {
+        printf("%d (grupa %d): ", i, graph->group_assignment[i]);
+        for (int j = 0; j < graph->neighbor_count[i]; j++) {
+            printf("%d ", graph->neighbors[i][j]);
         }
         printf("\n");
     }
@@ -202,4 +219,9 @@ void free_graph(Graph *graph) {
     if (graph->row_ptr) free(graph->row_ptr);
     if (graph->group_list) free(graph->group_list);
     if (graph->group_ptr) free(graph->group_ptr);
+    
+    graph->col_index = NULL;
+    graph->row_ptr = NULL;
+    graph->group_list = NULL;
+    graph->group_ptr = NULL;
 }
