@@ -201,14 +201,12 @@ static int load_graph_txt(Graph *graph, FILE *fp) {
         return -1;
     }
 
-<<<<<<< Updated upstream
     // Alokujemy miejsce na macierz grafu (0 i 1)
     int **map = malloc(rows * sizeof(int *));
     if (!map) return -1;
     for (int i = 0; i < rows; i++) {
         map[i] = malloc(cols * sizeof(int));
         if (!map[i]) return -1;
-=======
     init_graph(graph);
 
     char line[MAX_LINE_LENGTH];
@@ -227,10 +225,8 @@ static int load_graph_txt(Graph *graph, FILE *fp) {
     while (token && count < MAX_LINE_LENGTH) {
         temp_array[count++] = atoi(token);
         token = strtok(NULL, ";");
->>>>>>> Stashed changes
     }
 
-<<<<<<< Updated upstream
     // Wczytujemy mapę grafu
     int num_vertices = 0;
     for (int i = 0; i < rows; i++) {
@@ -240,7 +236,6 @@ static int load_graph_txt(Graph *graph, FILE *fp) {
                 return -1;
             }
             if (map[i][j] == 1) num_vertices++; // Liczymy wierzchołki
-=======
     // Sekcja 3: row_ptr (zakresy wierszy)
     if (!fgets(line, sizeof(line), fp)) goto error;
     temp_array = malloc(MAX_LINE_LENGTH * sizeof(int));
@@ -326,7 +321,6 @@ void dfs(const Graph *graph, int v, bool visited[]) {
         int neighbor = graph->neighbors[v][i];
         if (!visited[neighbor]) {
             dfs(graph, neighbor, visited);
->>>>>>> Stashed changes
         }
     }
 
