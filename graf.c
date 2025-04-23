@@ -69,20 +69,40 @@ void add_edge(Graph *graph, int u, int v) {
     if (u + 1 > graph->num_vertices) graph->num_vertices = u + 1;
     if (v + 1 > graph->num_vertices) graph->num_vertices = v + 1;
 }
-
 void convert_csr_to_neighbors(Graph *graph) {
-    // Dla każdego wiersza w CSR
-    for (int row = 0; row < graph->num_vertices; row++) {
-        int start = graph->row_ptr[row];
-        int end = graph->row_ptr[row + 1];
-        
-        // Dodaj wszystkie krawędzie z CSR do listy sąsiedztwa
-        for (int idx = start; idx < end; idx++) {
-            int col = graph->col_index[idx];
-            add_edge(graph, row, col);
+    // Wyczyszczenie listy sąsiedztwa
+    for (int i = 0; i < MAX_VERTICES; i++) {
+        graph->neighbor_count[i] = 0;
+        for (int j = 0; j < MAX_NEIGHBORS; j++) {
+            graph->neighbors[i][j] = -1;
+        }
+        graph->group_assignment[i] = 0; // reset przypisania do grupy
+    }
+    
+    // Przetwarzanie grup na podstawie group_ptr i group_list
+    for (int g = 0; g < MAX_VERTICES - 1; g++) {
+        int start_idx = graph->group_ptr[g];
+        int end_idx = graph->group_ptr[g + 1] - 1;
+
+        // Sprawdzenie poprawności zakresu
+        if (end_idx < start_idx || (g > 0 && graph->group_ptr[g] == 0)) break;
+
+        int leader = graph->group_list[start_idx];
+
+        // Przypisz lidera do grupy g+1
+        graph->group_assignment[leader] = g + 1;
+
+        // Dodaj połączenia lidera z innymi i przypisz im tę samą grupę
+        for (int i = start_idx + 1; i <= end_idx; i++) {
+            int neighbor = graph->group_list[i];
+            add_edge(graph, leader, neighbor);
+
+            // Przypisz również sąsiada do grupy
+            graph->group_assignment[neighbor] = g + 1;
         }
     }
 }
+
 
 int load_graph_from_csrrg(Graph *graph, const char *filename) {
     FILE *fp = fopen(filename, "r");

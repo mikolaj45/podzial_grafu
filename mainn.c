@@ -1,7 +1,12 @@
 #include <stdio.h>
 #include <stdlib.h>
+<<<<<<< HEAD
 #include "graf.h"
 #include "partitions.h"
+=======
+#include "graph.h"
+#include "partition.h"
+>>>>>>> emilk
 
 int main(int argc, char *argv[]) {
     if (argc < 2) {
@@ -42,4 +47,8 @@ int main(int argc, char *argv[]) {
 
     free_graph(&graph);
     return 0;
+<<<<<<< HEAD
 }
+=======
+}
+>>>>>>> emilk

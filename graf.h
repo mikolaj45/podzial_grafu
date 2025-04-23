@@ -24,6 +24,10 @@ typedef struct {
     int* row_ptr;
     int* group_list;
     int* group_ptr;
+<<<<<<< HEAD
+=======
+   
+>>>>>>> emilk
 } Graph;
 
 void init_graph(Graph *graph);
